@@ -57,7 +57,7 @@ export default function HomePage() {
       <header className="py-8 flex flex-col md:flex-row items-center justify-between gap-4 border-b border-slate-200 mb-8">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight font-display text-slate-900">
-            <span className="text-blue-600">Edu</span>
+            <span className="text-blue-600">VIV</span>
             <span className="text-red-500">Set</span> AI
           </h1>
           <p className="text-sm text-slate-500 mt-1">

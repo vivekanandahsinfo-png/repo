@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Upload, FileText, Loader2, Download, AlertCircle, Trash2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, FileText, Loader2, Download, AlertCircle, Trash2, Undo2, Redo2, Edit3, Check } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import { fileToBase64 } from '@/lib/fileUtils';
 import ReactMarkdown from 'react-markdown';
@@ -33,6 +33,64 @@ export default function QuestionPaperBuilder() {
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'paper' | 'answer'>('paper');
   const [error, setError] = useState<string | null>(null);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+
+  // History state for Undo/Redo
+  const [history, setHistory] = useState<{paper: string | null, answer: string | null}[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  const pushToHistory = (paper: string | null, answer: string | null) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push({ paper, answer });
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      if (isEditing) setIsEditing(false);
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      setGeneratedPaper(history[newIndex].paper);
+      setGeneratedAnswer(history[newIndex].answer);
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      if (isEditing) setIsEditing(false);
+      const newIndex = historyIndex + 1;
+      setHistoryIndex(newIndex);
+      setGeneratedPaper(history[newIndex].paper);
+      setGeneratedAnswer(history[newIndex].answer);
+    }
+  };
+
+  const handleEditSave = () => {
+    setIsEditing(false);
+    if (activeTab === 'paper') {
+      if (editContent !== generatedPaper) {
+        setGeneratedPaper(editContent);
+        pushToHistory(editContent, generatedAnswer);
+      }
+    } else {
+      if (editContent !== generatedAnswer) {
+        setGeneratedAnswer(editContent);
+        pushToHistory(generatedPaper, editContent);
+      }
+    }
+  };
+
+  const toggleEditMode = () => {
+    if (!isEditing) {
+      setEditContent(activeTab === 'paper' ? (generatedPaper || '') : (generatedAnswer || ''));
+      setIsEditing(true);
+    } else {
+      handleEditSave();
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -87,24 +145,21 @@ Total Marks: ${totalMarks}
 Time Allowed: ${timeAllowed}
 I have attached the syllabus document. Only include topics present in the syllabus.
 
-Difficulty distribution required:
-- Easy: ${easyPercent}%
-- Medium: ${mediumPercent}%
-- Hard: ${hardPercent}%
+To strictly adhere to the requested difficulty distribution:
+- Easy (${easyPercent}%): Direct, straightforward questions testing basic recall and fundamental concepts.
+- Medium (${mediumPercent}%): Questions requiring comprehension, application of concepts, and multi-step reasoning.
+- Hard (${hardPercent}%): Challenging, analytical, or higher-order thinking questions testing deep understanding.
+Calculate the exact marks for each difficulty level based on the Total Marks (${totalMarks}) and ensure the paper explicitly reflects this breakdown.
 
-Generate a structured question paper consisting of:
-1. Multiple Choice Questions (MCQs)
-2. Fill in the Blanks
-3. Short Answer Questions
-4. Long Answer Questions
+Structure the question paper with clear sections:
+Section A: Objective Type Questions (MCQs, Fill in the Blanks, True/False, One-word answers)
+Section B: Short Answer Questions (Testing understanding and clear expression)
+Section C: Long Answer / Application Questions (In-depth analysis, problem-solving, or descriptive answers)
 
-Questions should test:
-- Knowledge Check (recall facts)
-- Understanding (comprehension)
-- Application (problem-solving)
-
-Please provide the output in clean, structured Markdown format so it can be easily read and rendered. Do not include answers, only the question paper.
-Provide sensible marks allocation for each question and section. At the top of the paper, show the Class, Subject, Total Marks, and Time Allowed.
+Ensure each question clearly indicates the marks awarded.
+Please provide the output in clean, structured Markdown format so it can be easily read and rendered.
+Do not include answers, only the question paper.
+At the top of the paper, clearly state the Class, Subject, Total Marks, and Time Allowed.
 `;
 
       const response = await ai.models.generateContent({
@@ -122,6 +177,8 @@ Provide sensible marks allocation for each question and section. At the top of t
 
       const generatedText = response.text || '';
       setGeneratedPaper(generatedText);
+      setGeneratedAnswer(null);
+      pushToHistory(generatedText, null);
       
       // Save to Supabase (if configured)
       if (supabase && generatedText) {
@@ -161,15 +218,25 @@ Provide sensible marks allocation for each question and section. At the top of t
     setError(null);
     try {
       const prompt = `
-You are an expert teacher and curriculum designer.
-I have generated a question paper for Class ${targetClass} on the subject of ${subject}.
+You are an expert educator and exam evaluator.
+I have generated a question paper for class: ${targetClass}, subject: ${subject}.
+
+Total Marks: ${totalMarks}
+Time Allowed: ${timeAllowed}
 
 Here is the question paper:
+---
 ${generatedPaper}
+---
 
 Please generate a comprehensive, accurate, and well-structured answer script (or answer key) for the above question paper.
-Provide detailed answers, marking schemes, and step-by-step solutions where applicable (e.g., for mathematics).
-Use Markdown formatting. Ensure that the total marks align with the question paper.
+Ensure the following:
+1. Provide detailed answers and step-by-step solutions where applicable.
+2. Provide a clear marking scheme for each question, explaining how marks are distributed.
+3. Align the answers with the cognitive difficulty levels (Easy, Medium, Hard) reflecting the expectations for those levels.
+4. Verify that the sum of marks in the answer key perfectly matches the Total Marks (${totalMarks}).
+
+Provide the output in clean, structured Markdown format so it can be easily read and rendered.
 `;
 
       const response = await ai.models.generateContent({
@@ -179,6 +246,7 @@ Use Markdown formatting. Ensure that the total marks align with the question pap
 
       const generatedText = response.text || '';
       setGeneratedAnswer(generatedText);
+      pushToHistory(generatedPaper, generatedText);
 
       if (supabase && paperId) {
         const { error: dbError } = await supabase.from('question_papers').update({
@@ -395,6 +463,32 @@ Use Markdown formatting. Ensure that the total marks align with the question pap
           {generatedPaper && (
             <div className="flex items-center gap-2">
               <button
+                onClick={handleUndo}
+                disabled={historyIndex <= 0 || generating || generatingAnswer}
+                className="p-2 border border-slate-200 text-slate-700 rounded-lg bg-white hover:bg-slate-50 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Undo"
+              >
+                <Undo2 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleRedo}
+                disabled={historyIndex >= history.length - 1 || generating || generatingAnswer}
+                className="p-2 border border-slate-200 text-slate-700 rounded-lg bg-white hover:bg-slate-50 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Redo"
+              >
+                <Redo2 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={toggleEditMode}
+                disabled={generating || generatingAnswer || (activeTab === 'answer' && !generatedAnswer)}
+                className={`p-2 border border-slate-200 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isEditing ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700' : 'bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+                title={isEditing ? 'Save Edits' : 'Edit Markdown'}
+              >
+                {isEditing ? <Check className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+              </button>
+              <button
                 onClick={() => downloadPDF(activeTab)}
                 disabled={activeTab === 'answer' && !generatedAnswer}
                 className="px-4 py-2 border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg bg-white hover:bg-slate-50 shadow-sm flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -409,13 +503,19 @@ Use Markdown formatting. Ensure that the total marks align with the question pap
         {generatedPaper && (
           <div className="flex border-b border-slate-200 mb-4 shrink-0">
             <button
-              onClick={() => setActiveTab('paper')}
+              onClick={() => {
+                if (isEditing) handleEditSave();
+                setActiveTab('paper');
+              }}
               className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'paper' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
               Question Paper
             </button>
             <button
-              onClick={() => setActiveTab('answer')}
+              onClick={() => {
+                if (isEditing) handleEditSave();
+                setActiveTab('answer');
+              }}
               className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'answer' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             >
               Answer Script
@@ -431,6 +531,13 @@ Use Markdown formatting. Ensure that the total marks align with the question pap
                 {generating ? 'Generating Assessment...' : 'Generating Answer Script...'}
               </span>
             </div>
+          ) : isEditing ? (
+            <textarea
+              className="w-full h-full min-h-[500px] p-4 bg-white border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              placeholder="Edit your markdown here..."
+            />
           ) : generatedPaper ? (
             <>
               {activeTab === 'paper' && (

@@ -36,7 +36,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight font-display text-slate-900 mb-2">
-          <span className="text-blue-600">Edu</span>
+          <span className="text-blue-600">VIV</span>
           <span className="text-red-500">Set</span> AI
         </h1>
         <p className="text-slate-500 text-sm">
