@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, FileCheck, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { fileToBase64 } from '@/lib/fileUtils';
@@ -26,6 +26,41 @@ export default function AnswerEvaluator() {
   const [evaluating, setEvaluating] = useState(false);
   const [report, setReport] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [previousEvaluations, setPreviousEvaluations] = useState<any[]>([]);
+  const [isLoadingEvaluations, setIsLoadingEvaluations] = useState(false);
+
+  useEffect(() => {
+    const fetchEvaluations = async () => {
+      if (!supabase) return;
+      try {
+        setIsLoadingEvaluations(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data, error } = await supabase
+            .from('evaluations')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false });
+          
+          if (error) throw error;
+          if (data) setPreviousEvaluations(data);
+        }
+      } catch (err) {
+        console.error('Error fetching evaluations:', err);
+      } finally {
+        setIsLoadingEvaluations(false);
+      }
+    };
+    
+    fetchEvaluations();
+  }, []);
+
+  const handleSelectPreviousEvaluation = (evaluation: any) => {
+    setReport(evaluation.report);
+    setEvalId(evaluation.id);
+    // You could also populate qpFilePath and answerFilePath if those exist
+  };
 
   const handleQpFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -152,6 +187,7 @@ Make sure the output is professional, constructive, and beautifully formatted in
             console.error("Supabase Save Error:", dbError);
           } else if (evalData) {
             setEvalId(evalData.id);
+            setPreviousEvaluations(prev => [evalData, ...prev]);
           }
         }
       }
@@ -261,6 +297,43 @@ Make sure the output is professional, constructive, and beautifully formatted in
           {evaluating ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileCheck className="w-5 h-5" />}
           {evaluating ? 'Evaluating Script...' : 'Evaluate & Generate Report'}
         </button>
+
+        {/* Previous Evaluations List */}
+        <div className="mt-8 border-t border-slate-100 pt-6">
+          <h3 className="text-sm font-bold text-slate-800 mb-4">Previous Evaluations</h3>
+          {isLoadingEvaluations ? (
+            <div className="flex items-center justify-center p-4">
+              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+            </div>
+          ) : previousEvaluations.length > 0 ? (
+            <div className="flex flex-col gap-3 max-h-60 overflow-y-auto pr-2">
+              {previousEvaluations.map((ev) => (
+                <button
+                  key={ev.id}
+                  onClick={() => handleSelectPreviousEvaluation(ev)}
+                  className={`text-left p-4 rounded-xl border transition-colors ${
+                    evalId === ev.id 
+                    ? 'bg-blue-50 border-blue-200 shadow-sm' 
+                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">
+                      {new Date(ev.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-slate-700 line-clamp-2">
+                    {ev.report ? ev.report.substring(0, 100).replace(/#/g, '') + '...' : 'No report content'}
+                  </p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 italic bg-slate-50 p-4 rounded-xl border border-slate-100 text-center">
+              No previous evaluations found.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Output Section */}

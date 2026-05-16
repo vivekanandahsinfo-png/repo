@@ -6,7 +6,7 @@ import { GoogleGenAI } from '@google/genai';
 import { fileToBase64 } from '@/lib/fileUtils';
 import ReactMarkdown from 'react-markdown';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { supabase } from '@/lib/supabase';
 import { uploadToAppFiles, getSignedFileUrl, deleteFileFromStorage } from '@/src/storageHelpers';
 
@@ -27,6 +27,9 @@ export default function QuestionPaperBuilder() {
 
   const [generating, setGenerating] = useState(false);
   const [generatedPaper, setGeneratedPaper] = useState<string | null>(null);
+  const [generatingAnswer, setGeneratingAnswer] = useState(false);
+  const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'paper' | 'answer'>('paper');
   const [error, setError] = useState<string | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,19 +148,101 @@ Provide sensible marks allocation for each question and section. At the top of t
     }
   };
 
-  const downloadPDF = () => {
-    const paperElement = document.getElementById('generated-paper-content');
+  const handleGenerateAnswerScript = async () => {
+    if (!generatedPaper) return;
+    setGeneratingAnswer(true);
+    setActiveTab('answer');
+    setError(null);
+    try {
+      const prompt = `
+You are an expert teacher and curriculum designer.
+I have generated a question paper for Class ${targetClass} on the subject of ${subject}.
+
+Here is the question paper:
+${generatedPaper}
+
+Please generate a comprehensive, accurate, and well-structured answer script (or answer key) for the above question paper.
+Provide detailed answers, marking schemes, and step-by-step solutions where applicable (e.g., for mathematics).
+Use Markdown formatting. Ensure that the total marks align with the question paper.
+`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-pro-preview',
+        contents: prompt,
+      });
+
+      const generatedText = response.text || '';
+      setGeneratedAnswer(generatedText);
+
+      if (supabase && paperId) {
+        const { error: dbError } = await supabase.from('question_papers').update({
+          answer_script: generatedText
+        }).eq('id', paperId);
+        
+        if (dbError) {
+          console.error("Supabase Save Error:", dbError);
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to generate answer script.');
+    } finally {
+      setGeneratingAnswer(false);
+    }
+  };
+
+  const downloadPDF = async (type: 'paper' | 'answer') => {
+    const elementId = type === 'paper' ? 'generated-paper-content' : 'generated-answer-content';
+    const paperElement = document.getElementById(elementId);
     if (!paperElement) return;
 
-    html2canvas(paperElement, { scale: 2 }).then((canvas) => {
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    try {
+      // Dynamically import html2pdf to avoid SSR issues
+      const html2pdf = (await import('html2pdf.js')).default;
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`${subject}_Class${targetClass}_QuestionPaper.pdf`);
-    });
+      const filenameSuffix = type === 'paper' ? 'QuestionPaper' : 'AnswerScript';
+      const opt: any = {
+        margin:       20, // 20mm margin on all sides
+        filename:     `${subject}_Class${targetClass}_${filenameSuffix}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          letterRendering: true,
+          onclone: (clonedDoc: Document) => {
+            // Fix: html2canvas crashes on OKLCH colors used by Tailwind CSS v4.
+            // Forcefully override computed styles.
+            const allElements = clonedDoc.getElementsByTagName('*');
+            for (let i = 0; i < allElements.length; i++) {
+              const el = allElements[i] as HTMLElement;
+              // Only apply to HTMLElement
+              if (el.style) {
+                el.style.setProperty('color', '#000000', 'important');
+                el.style.setProperty('background-color', 'transparent', 'important');
+                el.style.setProperty('border-color', '#dddddd', 'important');
+                el.style.setProperty('text-decoration-color', '#000000', 'important');
+                el.style.setProperty('outline-color', 'transparent', 'important');
+                el.style.setProperty('box-shadow', 'none', 'important');
+                el.style.setProperty('text-shadow', 'none', 'important');
+              }
+            }
+            
+            const paper = clonedDoc.getElementById(elementId);
+            if (paper) {
+              paper.style.setProperty('background-color', '#ffffff', 'important');
+              // To ensure the font sizes look appropriate in the PDF, you can set the base font size:
+              paper.style.setProperty('font-size', '14px', 'important');
+            }
+          }
+        },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+      };
+
+      await html2pdf().set(opt).from(paperElement).save();
+    } catch (err) {
+      console.error('Failed to generate PDF', err);
+    }
   };
 
   return (
@@ -279,26 +364,71 @@ Provide sensible marks allocation for each question and section. At the top of t
             <p className="text-sm text-slate-500 mt-1">Class: {targetClass} | Subject: {subject}</p>
           </div>
           {generatedPaper && (
-            <button
-              onClick={downloadPDF}
-              className="px-4 py-2 border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg bg-white hover:bg-slate-50 shadow-sm flex items-center gap-2 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Download PDF
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => downloadPDF(activeTab)}
+                disabled={activeTab === 'answer' && !generatedAnswer}
+                className="px-4 py-2 border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg bg-white hover:bg-slate-50 shadow-sm flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download className="w-4 h-4" />
+                Download PDF
+              </button>
+            </div>
           )}
         </div>
         
+        {generatedPaper && (
+          <div className="flex border-b border-slate-200 mb-4 shrink-0">
+            <button
+              onClick={() => setActiveTab('paper')}
+              className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'paper' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+              Question Paper
+            </button>
+            <button
+              onClick={() => setActiveTab('answer')}
+              className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'answer' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+              Answer Script
+            </button>
+          </div>
+        )}
+
         <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-6 overflow-y-auto max-h-[600px] shadow-inner">
-          {generating ? (
+          {generating || generatingAnswer ? (
             <div className="h-full flex items-center justify-center flex-col text-slate-400 gap-4">
               <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-              <span className="text-sm font-bold text-blue-600 uppercase tracking-widest">Generating Assessment...</span>
+              <span className="text-sm font-bold text-blue-600 uppercase tracking-widest">
+                {generating ? 'Generating Assessment...' : 'Generating Answer Script...'}
+              </span>
             </div>
           ) : generatedPaper ? (
-            <div id="generated-paper-content" className="max-w-2xl mx-auto prose prose-sm prose-slate prose-headings:font-bold prose-headings:text-slate-800 p-4 bg-white rounded shadow-sm border border-slate-200">
-              <ReactMarkdown>{generatedPaper}</ReactMarkdown>
-            </div>
+            <>
+              {activeTab === 'paper' && (
+                <div id="generated-paper-content" className="max-w-3xl mx-auto prose prose-sm md:prose-base prose-slate p-8 bg-white rounded shadow-sm border border-slate-200 marker:text-slate-500 prose-p:text-sm prose-li:text-sm prose-headings:text-slate-800">
+                  <ReactMarkdown>{generatedPaper}</ReactMarkdown>
+                </div>
+              )}
+              {activeTab === 'answer' && (
+                <>
+                  {generatedAnswer ? (
+                    <div id="generated-answer-content" className="max-w-3xl mx-auto prose prose-sm md:prose-base prose-slate p-8 bg-white rounded shadow-sm border border-slate-200 marker:text-slate-500 prose-p:text-sm prose-li:text-sm prose-headings:text-slate-800">
+                      <ReactMarkdown>{generatedAnswer}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-4">
+                      <p className="text-sm font-medium">No answer script generated yet.</p>
+                      <button
+                        onClick={handleGenerateAnswerScript}
+                        className="px-6 py-2 bg-blue-100 text-blue-700 font-bold rounded-lg hover:bg-blue-200 transition-colors"
+                      >
+                        Generate Answer Script
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           ) : (
             <div className="h-full flex items-center justify-center text-slate-400 text-sm font-medium">
               Generated question paper will appear here.
