@@ -18,6 +18,8 @@ export default function QuestionPaperBuilder() {
   const [easyPercent, setEasyPercent] = useState(30);
   const [mediumPercent, setMediumPercent] = useState(50);
   const [hardPercent, setHardPercent] = useState(20);
+  const [totalMarks, setTotalMarks] = useState(100);
+  const [timeAllowed, setTimeAllowed] = useState('3 Hours');
   
   const [file, setFile] = useState<File | null>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
@@ -81,6 +83,8 @@ export default function QuestionPaperBuilder() {
       const prompt = `
 You are an expert educator and examination paper setter.
 Create a detailed question paper for class: ${targetClass}, subject: ${subject}.
+Total Marks: ${totalMarks}
+Time Allowed: ${timeAllowed}
 I have attached the syllabus document. Only include topics present in the syllabus.
 
 Difficulty distribution required:
@@ -130,6 +134,8 @@ Provide sensible marks allocation for each question and section. At the top of t
             easy_percent: easyPercent,
             medium_percent: mediumPercent,
             hard_percent: hardPercent,
+            total_marks: totalMarks,
+            time_allowed: timeAllowed,
             content: generatedText,
             syllabus_file_path: filePath
           }).select().single();
@@ -278,6 +284,29 @@ Use Markdown formatting. Ensure that the total marks align with the question pap
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold text-slate-500 uppercase">Total Marks</label>
+            <input 
+              type="number" 
+              value={totalMarks} 
+              onChange={e => setTotalMarks(Number(e.target.value))}
+              placeholder="e.g. 100"
+              className="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full py-2 px-3"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold text-slate-500 uppercase">Time Allowed</label>
+            <input 
+              type="text" 
+              value={timeAllowed} 
+              onChange={e => setTimeAllowed(e.target.value)}
+              placeholder="e.g. 3 Hours"
+              className="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full py-2 px-3"
+            />
           </div>
         </div>
 

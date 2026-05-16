@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS question_papers (
     easy_percent INTEGER,
     medium_percent INTEGER,
     hard_percent INTEGER,
+    total_marks INTEGER,
+    time_allowed TEXT,
     content TEXT NOT NULL,
     answer_script TEXT,
     syllabus_file_path TEXT,
@@ -17,6 +19,10 @@ CREATE TABLE IF NOT EXISTS question_papers (
 
 -- If the table already exists, run these to add the new columns:
 ALTER TABLE question_papers ADD COLUMN IF NOT EXISTS answer_script TEXT;
+
+-- If the table already exists, run these to add the new columns:
+ALTER TABLE question_papers ADD COLUMN IF NOT EXISTS total_marks INTEGER;
+ALTER TABLE question_papers ADD COLUMN IF NOT EXISTS time_allowed TEXT;
 
 -- If the table already exists, run these to add the new columns:
 ALTER TABLE question_papers ADD COLUMN IF NOT EXISTS syllabus_file_path TEXT;
